@@ -1,0 +1,45 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python caches and builds (anywhere)
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/*.py[cod]
+**/*.pyo
+**/*.pyd
+**/*.pyc
+**/*.egg-info/
+**/build/
+**/dist/
+
+# Virtual environments
+.venv/
+backend/.venv/
+venv/
+ENV/
+
+# Backend data (keep folder, ignore contents)
+backend/data/*
+!backend/data/.gitkeep
+
+# Env files
+backend/.env
+frontend/.env
+
+# Node (frontend)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/npm-debug.log*
+frontend/yarn-*.log*
+
+# Logs
+*.log
+
+# Misc
+*.DS_Store
+

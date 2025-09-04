@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+.Python
+.venv/
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.DS_Store
+data/
+
+# Local environment overrides (do not commit secrets)
+.env

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vite/
+*.log
+
+# Local environment (if used for frontend)
+.env
+
+# OS / editor files
+.DS_Store
+.idea/
+.vscode/
