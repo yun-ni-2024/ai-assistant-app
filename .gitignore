@@ -39,6 +39,33 @@ frontend/yarn-*.log*
 
 # Logs
 *.log
+*.log.*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+count_loc.py
+proj_desc.md
+prompts/
 
 # Misc
 *.DS_Store

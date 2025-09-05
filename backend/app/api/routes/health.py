@@ -51,3 +51,33 @@ async def config() -> dict:
     }
 
 
+@router.get("/debug/sessions")
+async def debug_sessions() -> dict:
+    """Debug endpoint to view all sessions and messages in database."""
+    from ...db.database import db_connection
+    
+    with db_connection() as conn:
+        # Get all sessions
+        sessions_cursor = conn.execute("SELECT * FROM sessions ORDER BY created_at DESC")
+        sessions = [dict(row) for row in sessions_cursor.fetchall()]
+        
+        # Get all messages
+        messages_cursor = conn.execute("SELECT * FROM messages ORDER BY created_at ASC")
+        messages = [dict(row) for row in messages_cursor.fetchall()]
+        
+        # Group messages by session
+        sessions_with_messages = []
+        for session in sessions:
+            session_messages = [msg for msg in messages if msg['session_id'] == session['id']]
+            sessions_with_messages.append({
+                **session,
+                'messages': session_messages
+            })
+    
+    return {
+        "sessions_count": len(sessions),
+        "messages_count": len(messages),
+        "sessions": sessions_with_messages
+    }
+
+

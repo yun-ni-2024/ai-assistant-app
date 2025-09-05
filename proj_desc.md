@@ -22,7 +22,7 @@
 - **前端**：React + Vite + TypeScript
 - **后端**：Python FastAPI
 - **数据库**：SQLite
-- **LLM**：OpenAI GPT-3.5-Turbo，需支持流式输出（SSE）
+- **LLM**：需支持流式输出（SSE）
 - **用户系统**：无需登录，匿名访问
 - **开发与部署方式**：
   - 后端使用 `.venv` 虚拟环境

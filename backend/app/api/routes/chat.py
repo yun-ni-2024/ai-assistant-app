@@ -40,6 +40,7 @@ class CreateChatResponse(BaseModel):
 
 _streams: Dict[str, str] = {}
 _assistant_placeholders: Dict[str, str] = {}
+_stream_sessions: Dict[str, str] = {}  # Map stream_id to session_id
 
 
 def _now_iso() -> str:
@@ -89,6 +90,7 @@ async def create_chat(req: CreateChatRequest = Body(...)) -> CreateChatResponse:
 
     # Register stream payload source: Either real OpenAI or local echo fallback
     stream_id = str(uuid4())
+    _stream_sessions[stream_id] = session_id  # Store session_id for conversation history
     settings = get_settings()
     if settings.llm_provider in {"openai", "openrouter"} and settings.llm_streaming_enabled and (
         (settings.llm_provider == "openai" and settings.openai_api_key)
@@ -120,6 +122,23 @@ async def _stream_response_text(text: str):
     yield _sse_event({"done": True})
 
 
+@router.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str = Path(...)) -> list:
+    """Get all messages for a specific session."""
+    with db_connection() as conn:
+        cursor = conn.execute(
+            "SELECT id, role, content, created_at FROM messages WHERE session_id = ? ORDER BY created_at ASC",
+            (session_id,)
+        )
+        messages = []
+        for row in cursor.fetchall():
+            message = dict(row)
+            # 重命名字段以匹配前端期望
+            message['timestamp'] = message.pop('created_at')
+            messages.append(message)
+    return messages
+
+
 @router.get("/stream/{stream_id}")
 async def stream_chat(stream_id: str = Path(...)) -> StreamingResponse:
     """Stream the assistant response corresponding to the given stream_id.
@@ -131,7 +150,8 @@ async def stream_chat(stream_id: str = Path(...)) -> StreamingResponse:
 
     payload = _streams.pop(stream_id, None)
     assistant_msg_id = _assistant_placeholders.pop(stream_id, None)
-    if payload is None or assistant_msg_id is None:
+    session_id = _stream_sessions.pop(stream_id, None)
+    if payload is None or assistant_msg_id is None or session_id is None:
         raise HTTPException(status_code=404, detail="Invalid or expired stream_id")
 
     settings = get_settings()
@@ -158,11 +178,36 @@ async def stream_chat(stream_id: str = Path(...)) -> StreamingResponse:
                     )
                 else:
                     client = OpenAIStreamClient()
-                # Construct messages with simple system + user content for now
+                
+                # Get conversation history for context (limit to last 10 messages to avoid token limits)
+                with db_connection() as conn:
+                    # Get the most recent 10 messages, then sort them in chronological order
+                    cursor = conn.execute(
+                        "SELECT role, content FROM messages WHERE session_id = ? ORDER BY created_at DESC LIMIT 10",
+                        (session_id,)
+                    )
+                    recent_messages = [{"role": row["role"], "content": row["content"]} for row in cursor.fetchall()]
+                    
+                    # Reverse to get chronological order (oldest first)
+                    all_messages = list(reversed(recent_messages))
+                    
+                    # Filter out the last assistant placeholder message if it's empty
+                    conversation_history = []
+                    for i, msg in enumerate(all_messages):
+                        # Skip the last message if it's an empty assistant message
+                        if i == len(all_messages) - 1 and msg["role"] == "assistant" and not msg["content"].strip():
+                            continue
+                        conversation_history.append(msg)
+                
+                # Construct messages with conversation history
                 messages = [
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": payload},
+                    {"role": "system", "content": "You are a helpful AI assistant. When responding to users:\n\n1. Always start your response as a complete, independent statement\n2. Do not use leading characters like '?' or empty lines at the beginning\n3. Be conversational and helpful, but maintain your AI identity\n4. You have access to the full conversation history and should maintain context\n5. Respond naturally and engage with the user's questions or requests\n6. If the user asks about something from previous messages, reference it appropriately\n7. Keep responses clear, informative, and well-structured"},
+                    *conversation_history,  # Include conversation history
                 ]
+                
+                print(f"🔍 Sending to AI - Session: {session_id}, Messages count: {len(messages)}")
+                for i, msg in enumerate(messages):
+                    print(f"🔍 Message {i}: {msg['role']} - {msg['content'][:100]}...")
                 async for delta in client.stream_chat(messages):
                     accumulated.append(delta)
                     yield _sse_event({"delta": delta, "done": False})
