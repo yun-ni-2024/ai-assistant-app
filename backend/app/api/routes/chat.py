@@ -31,6 +31,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 class CreateChatRequest(BaseModel):
     session_id: Optional[str] = Field(default=None, description="Existing session id; if omitted, a new session is created")
     user_message: str = Field(min_length=1, description="User's message content")
+    system_prompt: Optional[str] = Field(default=None, description="Custom system prompt; if omitted, uses default")
 
 
 class CreateChatResponse(BaseModel):
@@ -41,6 +42,7 @@ class CreateChatResponse(BaseModel):
 _streams: Dict[str, str] = {}
 _assistant_placeholders: Dict[str, str] = {}
 _stream_sessions: Dict[str, str] = {}  # Map stream_id to session_id
+_stream_system_prompts: Dict[str, str] = {}  # Map stream_id to system_prompt
 
 
 def _now_iso() -> str:
@@ -96,9 +98,10 @@ async def create_chat(req: CreateChatRequest = Body(...)) -> CreateChatResponse:
         (settings.llm_provider == "openai" and settings.openai_api_key)
         or (settings.llm_provider == "openrouter" and settings.openrouter_api_key)
     ):
-        # Store the input and assistant msg id for the stream handler
+        # Store the input, system prompt, and assistant msg id for the stream handler
         _streams[stream_id] = req.user_message
         _assistant_placeholders[stream_id] = assistant_msg_id
+        _stream_system_prompts[stream_id] = req.system_prompt
     else:
         # Fallback to echo text streaming
         assistant_content = f"Echo: {req.user_message}"
@@ -151,6 +154,7 @@ async def stream_chat(stream_id: str = Path(...)) -> StreamingResponse:
     payload = _streams.pop(stream_id, None)
     assistant_msg_id = _assistant_placeholders.pop(stream_id, None)
     session_id = _stream_sessions.pop(stream_id, None)
+    system_prompt = _stream_system_prompts.pop(stream_id, None)
     if payload is None or assistant_msg_id is None or session_id is None:
         raise HTTPException(status_code=404, detail="Invalid or expired stream_id")
 
@@ -200,12 +204,16 @@ async def stream_chat(stream_id: str = Path(...)) -> StreamingResponse:
                         conversation_history.append(msg)
                 
                 # Construct messages with conversation history
+                # Use custom system prompt if provided, otherwise use default
+                default_system_prompt = "You are a helpful AI assistant. When responding to users:\n\n1. Always start your response as a complete, independent statement\n2. Be conversational and helpful, but maintain your AI identity\n3. You have access to the full conversation history and should maintain context\n4. Respond naturally and engage with the user's questions or requests\n5. If the user asks about something from previous messages, reference it appropriately\n6. Keep responses clear, informative, and well-structured"
+                
                 messages = [
-                    {"role": "system", "content": "You are a helpful AI assistant. When responding to users:\n\n1. Always start your response as a complete, independent statement\n2. Do not use leading characters like '?' or empty lines at the beginning\n3. Be conversational and helpful, but maintain your AI identity\n4. You have access to the full conversation history and should maintain context\n5. Respond naturally and engage with the user's questions or requests\n6. If the user asks about something from previous messages, reference it appropriately\n7. Keep responses clear, informative, and well-structured"},
+                    {"role": "system", "content": system_prompt or default_system_prompt},
                     *conversation_history,  # Include conversation history
                 ]
                 
                 print(f"🔍 Sending to AI - Session: {session_id}, Messages count: {len(messages)}")
+                print(f"🔍 System prompt: {system_prompt[:100] if system_prompt else 'None'}...")
                 for i, msg in enumerate(messages):
                     print(f"🔍 Message {i}: {msg['role']} - {msg['content'][:100]}...")
                 async for delta in client.stream_chat(messages):

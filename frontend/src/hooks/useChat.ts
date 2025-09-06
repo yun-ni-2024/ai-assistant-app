@@ -7,6 +7,11 @@ export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [systemPrompt, setSystemPrompt] = useState<string>(() => {
+    // Load from localStorage or use default
+    const saved = localStorage.getItem('ai-assistant-system-prompt');
+    return saved || "You are a helpful AI assistant. When responding to users:\n\n1. Always start your response as a complete, independent statement\n2. Be conversational and helpful, but maintain your AI identity\n3. You have access to the full conversation history and should maintain context\n4. Respond naturally and engage with the user's questions or requests\n5. If the user asks about something from previous messages, reference it appropriately\n6. Keep responses clear, informative, and well-structured";
+  });
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
@@ -32,7 +37,10 @@ export function useChat() {
       const createRequest: CreateChatRequest = {
         session_id: currentSessionId || undefined,
         user_message: userMessage,
+        system_prompt: systemPrompt,
       };
+      
+      console.log('🔍 Sending request with system prompt:', systemPrompt.substring(0, 100) + '...');
 
       const createResponse = await fetch('/api/chat/create', {
         method: 'POST',
@@ -130,15 +138,15 @@ export function useChat() {
         console.error('SSE error:', err);
         eventSource.close();
         setIsStreaming(false);
-        setError('连接中断，请重试');
+        setError('Connection interrupted, please try again');
       };
 
     } catch (err) {
       console.error('Error sending message:', err);
       setIsStreaming(false);
-      setError(err instanceof Error ? err.message : '发送失败，请重试');
+      setError(err instanceof Error ? err.message : 'Failed to send message, please try again');
     }
-  }, [currentSessionId]);
+  }, [currentSessionId, systemPrompt]);
 
   const selectSession = useCallback(async (sessionId: string) => {
     console.log('🔍 selectSession called with:', sessionId);
@@ -184,14 +192,21 @@ export function useChat() {
     setError(null);
   }, []);
 
+  const updateSystemPrompt = useCallback((newPrompt: string) => {
+    setSystemPrompt(newPrompt);
+    localStorage.setItem('ai-assistant-system-prompt', newPrompt);
+  }, []);
+
   return {
     sessions,
     currentSessionId,
     messages,
     isStreaming,
     error,
+    systemPrompt,
     sendMessage,
     selectSession,
     newSession,
+    updateSystemPrompt,
   };
 }

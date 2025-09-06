@@ -21,14 +21,14 @@ export function SessionList({
           onClick={onNewSession}
           className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
         >
-          新建对话
+          New Chat
         </button>
       </div>
       
       <div className="flex-1 overflow-y-auto">
         {sessions.length === 0 ? (
           <div className="p-4 text-center text-gray-500">
-            <p>暂无对话</p>
+            <p>No conversations yet</p>
           </div>
         ) : (
           <div className="p-2 space-y-1">
@@ -47,7 +47,7 @@ export function SessionList({
                   {new Date(session.createdAt).toLocaleDateString()}
                 </div>
                 <div className="text-xs text-gray-400">
-                  {session.messages.length} 条消息
+                  {session.messages.length} messages
                 </div>
               </button>
             ))}

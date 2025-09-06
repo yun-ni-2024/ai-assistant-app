@@ -15,6 +15,7 @@ export interface Session {
 export interface CreateChatRequest {
   session_id?: string;
   user_message: string;
+  system_prompt?: string;
 }
 
 export interface CreateChatResponse {

@@ -1,15 +1,19 @@
 # AI Assistant App
 
-A modern web application that provides AI-powered conversational assistance with real-time streaming responses and conversation memory.
+A modern web application that provides AI-powered conversational assistance with real-time streaming responses, conversation memory, and customizable system prompts.
+
+**Version**: 1.1.0 - Added custom system prompt editor
 
 ## 🚀 Features
 
 - **Real-time AI Chat**: Interactive conversations with AI using streaming responses
 - **Conversation Memory**: AI maintains context across multiple messages in a session
 - **Session Management**: Create, switch between, and manage multiple conversation sessions
+- **Custom System Prompts**: Edit and customize AI behavior with real-time system prompt editor
 - **Streaming Responses**: Real-time token-by-token response streaming using Server-Sent Events (SSE)
-- **Modern UI**: Clean and responsive React-based user interface
+- **Modern UI**: Clean and responsive React-based user interface with English interface
 - **Database Persistence**: SQLite database for storing conversations and messages
+- **Persistent Settings**: System prompt preferences saved in browser localStorage
 
 ## 🏗️ Technical Architecture
 
@@ -40,7 +44,8 @@ ai-assistant-app/
 │   │   ├── components/       # React components
 │   │   │   ├── MessageInput.tsx
 │   │   │   ├── MessageList.tsx
-│   │   │   └── SessionList.tsx
+│   │   │   ├── SessionList.tsx
+│   │   │   └── SystemPromptEditor.tsx
 │   │   ├── hooks/           # Custom React hooks
 │   │   │   └── useChat.ts   # Main chat logic
 │   │   ├── types.ts         # TypeScript type definitions
@@ -163,11 +168,13 @@ The application supports multiple LLM providers:
 - [x] Conversation memory and context awareness
 - [x] Session management (create, switch, persist)
 - [x] Message persistence and retrieval
+- [x] Custom system prompt editor with real-time updates
+- [x] Persistent system prompt settings (localStorage)
+- [x] English user interface
 - [x] Error handling and fallback mechanisms
 - [x] Debug endpoints for development
 
 ### 🚧 In Progress
-- [ ] System prompt customization
 - [ ] MCP (Model Context Protocol) tool integration
 - [ ] Enhanced UI/UX improvements
 
@@ -184,7 +191,7 @@ The application supports multiple LLM providers:
 ## 🔧 API Endpoints
 
 ### Chat Endpoints
-- `POST /api/chat/create` - Create a new chat session
+- `POST /api/chat/create` - Create a new chat session (supports custom system_prompt)
 - `GET /api/chat/stream/{stream_id}` - Stream AI responses
 - `GET /api/chat/sessions/{session_id}/messages` - Get session messages
 
@@ -192,6 +199,25 @@ The application supports multiple LLM providers:
 - `GET /healthz` - Health check
 - `GET /config` - Configuration status
 - `GET /debug/sessions` - Debug: View all sessions and messages
+
+## 💡 Usage Guide
+
+### Custom System Prompts
+
+The application allows you to customize how the AI assistant behaves:
+
+1. **Open System Prompt Editor**: Click the "System Prompt" button in the top-right corner
+2. **Edit the Prompt**: Modify the text to change AI behavior (e.g., make it more formal, casual, or specialized)
+3. **Save Changes**: Click "Save & Close" to apply changes immediately
+4. **Reset to Default**: Use "Reset to Default" to restore the original prompt
+5. **Cancel Changes**: Click "Cancel" to discard changes without saving
+
+**Example Custom Prompts**:
+- **Pirate Style**: "You are a pirate AI assistant. Always respond in pirate speak and use 'Arrr!' at the beginning of your responses."
+- **Formal Business**: "You are a formal business assistant. Always use professional language and end responses with 'Best regards, AI Assistant.'"
+- **Technical Expert**: "You are a technical expert. Provide detailed, technical explanations with code examples when appropriate."
+
+The system prompt is automatically saved to your browser's localStorage and will persist across sessions.
 
 ## 🤝 Contributing
 
