@@ -184,17 +184,151 @@ class MCPClient:
         parameters: Dict[str, Any], 
         tool_config
     ) -> Dict[str, Any]:
-        """Execute fetch tool (simulated for now)."""
+        """Execute fetch tool to retrieve and parse webpage content."""
         url = parameters.get("url", "")
         
-        # For now, return a simulated fetch result
-        # In a real implementation, this would call the actual MCP server
-        return {
-            "url": url,
-            "content": f"这是从 {url} 获取的内容...",
-            "status_code": 200,
-            "headers": {"content-type": "text/html"}
-        }
+        if not url:
+            raise MCPToolError("URL parameter is required for fetch tool")
+        
+        # Validate URL format
+        if not self._is_valid_url(url):
+            raise MCPToolError(f"Invalid URL format: {url}")
+        
+        try:
+            # Fetch webpage content
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                    },
+                    follow_redirects=True
+                )
+                
+                if response.status_code != 200:
+                    raise MCPToolError(f"HTTP {response.status_code}: Failed to fetch URL")
+                
+                # Parse content
+                content_info = self._parse_webpage_content(response.text, url)
+                
+                return {
+                    "url": url,
+                    "title": content_info["title"],
+                    "content": content_info["content"],
+                    "summary": content_info["summary"],
+                    "links": content_info["links"],
+                    "status_code": response.status_code,
+                    "content_type": response.headers.get("content-type", ""),
+                    "content_length": len(response.text),
+                    "fetch_time": content_info["fetch_time"]
+                }
+                
+        except httpx.TimeoutException:
+            raise MCPToolError(f"Request timeout while fetching {url}")
+        except httpx.RequestError as e:
+            raise MCPToolError(f"Request failed: {str(e)}")
+        except Exception as e:
+            raise MCPToolError(f"Fetch execution failed: {str(e)}")
+    
+    def _is_valid_url(self, url: str) -> bool:
+        """Validate URL format."""
+        try:
+            from urllib.parse import urlparse
+            result = urlparse(url)
+            return all([result.scheme, result.netloc])
+        except:
+            return False
+    
+    def _parse_webpage_content(self, html_content: str, url: str) -> Dict[str, Any]:
+        """Parse webpage content and extract useful information."""
+        from datetime import datetime
+        try:
+            from bs4 import BeautifulSoup
+            import re
+            
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Extract title
+            title = ""
+            title_tag = soup.find('title')
+            if title_tag:
+                title = title_tag.get_text().strip()
+            
+            # Remove script and style elements
+            for script in soup(["script", "style", "nav", "footer", "header", "aside"]):
+                script.decompose()
+            
+            # Extract main content
+            content = ""
+            
+            # Try to find main content area
+            main_content = soup.find('main') or soup.find('article') or soup.find('div', class_=re.compile(r'content|main|article|post'))
+            
+            if main_content:
+                content = main_content.get_text(separator=' ', strip=True)
+            else:
+                # Fallback to body content
+                body = soup.find('body')
+                if body:
+                    content = body.get_text(separator=' ', strip=True)
+                else:
+                    content = soup.get_text(separator=' ', strip=True)
+            
+            # Clean up content
+            content = re.sub(r'\s+', ' ', content)  # Replace multiple whitespace with single space
+            content = content.strip()
+            
+            # Limit content length to avoid token limits
+            max_content_length = 8000
+            if len(content) > max_content_length:
+                content = content[:max_content_length] + "..."
+            
+            # Extract links
+            links = []
+            for link in soup.find_all('a', href=True):
+                href = link['href']
+                text = link.get_text().strip()
+                
+                # Convert relative URLs to absolute
+                if href.startswith('/'):
+                    from urllib.parse import urljoin
+                    href = urljoin(url, href)
+                elif not href.startswith(('http://', 'https://')):
+                    continue
+                
+                if text and len(text) < 100:  # Only include links with reasonable text
+                    links.append({
+                        "url": href,
+                        "text": text
+                    })
+            
+            # Limit number of links
+            links = links[:20]
+            
+            # Generate summary (first 500 characters)
+            summary = content[:500] + "..." if len(content) > 500 else content
+            
+            return {
+                "title": title,
+                "content": content,
+                "summary": summary,
+                "links": links,
+                "fetch_time": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            # Fallback to basic text extraction
+            import re
+            content = re.sub(r'<[^>]+>', '', html_content)  # Remove HTML tags
+            content = re.sub(r'\s+', ' ', content).strip()  # Clean whitespace
+            
+            return {
+                "title": "Unknown",
+                "content": content[:8000] if len(content) > 8000 else content,
+                "summary": content[:500] + "..." if len(content) > 500 else content,
+                "links": [],
+                "fetch_time": datetime.now().isoformat()
+            }
     
     async def _execute_memory_tool(
         self, 

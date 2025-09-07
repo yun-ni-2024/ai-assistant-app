@@ -67,6 +67,9 @@ count_loc.py
 proj_desc.md
 prompts/
 
+# Test files
+backend/test_*.py
+
 # MCP Tools configuration (if sensitive)
 backend/.env.mcp
 

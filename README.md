@@ -2,7 +2,7 @@
 
 A modern web application that provides AI-powered conversational assistance with real-time streaming responses, conversation memory, and customizable system prompts.
 
-**Version**: 1.2.0 - Added MCP tool integration with web search
+**Version**: 1.3.0 - Enhanced MCP tools with fetch capability and intelligent filtering
 
 ## 🚀 Features
 
@@ -10,7 +10,7 @@ A modern web application that provides AI-powered conversational assistance with
 - **Conversation Memory**: AI maintains context across multiple messages in a session
 - **Session Management**: Create, switch between, and manage multiple conversation sessions
 - **Custom System Prompts**: Edit and customize AI behavior with real-time system prompt editor
-- **MCP Tool Integration**: Web search capabilities with real-time information retrieval
+- **MCP Tool Integration**: Web search and content fetching with real-time information retrieval
 - **Multilingual Support**: Full internationalization with adaptive language responses
 - **Streaming Responses**: Real-time token-by-token response streaming using Server-Sent Events (SSE)
 - **Modern UI**: Clean and responsive React-based user interface with English interface
@@ -30,7 +30,7 @@ A modern web application that provides AI-powered conversational assistance with
 - **Language**: Python 3.x
 - **Database**: SQLite with custom connection management
 - **LLM Integration**: OpenAI-compatible API (OpenRouter)
-- **MCP Tools**: Google Custom Search API for web search
+- **MCP Tools**: Google Custom Search API for web search, web content fetching with BeautifulSoup
 - **Streaming**: Server-Sent Events (SSE) for real-time responses
 
 ### AI Model
@@ -153,7 +153,9 @@ OPENROUTER_SITE_TITLE=AI Assistant App
 
 # MCP Tools Configuration
 MCP_SEARCH_ENABLED=true
+MCP_FETCH_ENABLED=true
 MCP_SEARCH_URL=http://localhost:3001
+MCP_FETCH_URL=http://localhost:3002
 GOOGLE_CSE_API_KEY=your_google_cse_api_key_here
 GOOGLE_CSE_ENGINE_ID=your_google_cse_engine_id_here
 
@@ -187,8 +189,12 @@ The application supports multiple LLM providers:
 - [x] Debug endpoints for development
 - [x] MCP (Model Context Protocol) tool integration
 - [x] Web search capabilities with Google Custom Search API
+- [x] Web content fetching with BeautifulSoup4 and httpx
+- [x] Intelligent tool selection with priority system (fetch > search)
 - [x] Multilingual support with adaptive responses
 - [x] Real-time information retrieval and citation
+- [x] Smart content filtering for search results
+- [x] Natural language link embedding
 
 ### 🚧 In Progress
 - [ ] Enhanced UI/UX improvements
@@ -246,21 +252,24 @@ The system prompt is automatically saved to your browser's localStorage and will
 The application includes Model Context Protocol (MCP) tools that extend AI capabilities:
 
 1. **Web Search**: Automatically searches for real-time information when needed
-2. **Multilingual Support**: Adapts search queries and responses to user's language
-3. **Source Citation**: Provides inline links to information sources
-4. **Real-time Data**: Retrieves current information for time-sensitive queries
+2. **Content Fetching**: Fetches and analyzes specific web pages for detailed content
+3. **Intelligent Tool Selection**: AI automatically chooses between search and fetch based on user needs
+4. **Multilingual Support**: Adapts search queries and responses to user's language
+5. **Smart Filtering**: Filters out irrelevant search results to provide focused answers
+6. **Source Citation**: Provides inline links to information sources
+7. **Real-time Data**: Retrieves current information for time-sensitive queries
 
 **How it works**:
-- The AI automatically determines when web search is needed
-- Search results are integrated into responses with proper citations
+- The AI automatically determines when web search or content fetching is needed
+- Tool selection follows priority: fetch (for specific URLs) > search (for general queries)
+- Search results are filtered to include only relevant information
+- Content is integrated into responses with proper citations
 - Links are embedded inline for easy access to sources
 - Supports multiple languages with appropriate formatting
 
-**Example queries that trigger search**:
-- "What's the weather like today?"
-- "Latest news about AI"
-- "Stock market performance on [date]"
-- "Current events in [location]"
+**Example queries that trigger tools**:
+- **Search**: "What's the weather like today?", "Latest news about AI", "Stock market performance"
+- **Fetch**: "Analyze this article: https://example.com/article", "What does this page say about...?"
 
 ## 🤝 Contributing
 

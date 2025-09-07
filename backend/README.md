@@ -42,6 +42,7 @@ OPENAI_MODEL=deepseek/deepseek-chat-v3.1:free
 
 # MCP Tools Configuration
 MCP_SEARCH_ENABLED=true
+MCP_FETCH_ENABLED=true
 GOOGLE_CSE_API_KEY=your_google_cse_api_key_here
 GOOGLE_CSE_ENGINE_ID=your_google_cse_engine_id_here
 

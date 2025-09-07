@@ -60,8 +60,17 @@ def init_db() -> None:
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL,
+                sequence_id INTEGER NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
+            """
+        )
+        
+        # Create index for efficient ordering
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_messages_session_sequence 
+            ON messages(session_id, sequence_id);
             """
         )
 
