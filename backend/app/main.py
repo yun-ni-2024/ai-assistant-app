@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .core.settings import get_settings
 from .api.routes.health import router as health_router
 from .api.routes.chat import router as chat_router
+from .api.routes.tools import router as tools_router
 from .db.database import init_db
 
 
@@ -46,6 +47,7 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(health_router)
     app.include_router(chat_router)
+    app.include_router(tools_router)
 
     # Initialize database on startup
     @app.on_event("startup")

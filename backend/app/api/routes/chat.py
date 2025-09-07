@@ -11,6 +11,7 @@ Later we will replace the mock with a real LLM streaming integration.
 
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 from typing import Dict, Optional
 from uuid import uuid4
@@ -23,6 +24,7 @@ from pydantic import BaseModel, Field
 from ...db.database import db_connection
 from ...core.settings import get_settings
 from ...services.openai_stream import OpenAIStreamClient
+from ...services.mcp_client import get_mcp_client, MCPToolError
 
 
 router = APIRouter(prefix="/chat", tags=["chat"]) 
@@ -47,6 +49,81 @@ _stream_system_prompts: Dict[str, str] = {}  # Map stream_id to system_prompt
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+async def _analyze_search_need(client, user_message: str) -> tuple[bool, str]:
+    """Use LLM to analyze if user message needs search and generate search query."""
+    try:
+        # Create a simple analysis prompt
+        analysis_prompt = f"""Analyze the following user message and determine if it requires real-time information or current data that would benefit from a web search.
+
+User message: "{user_message}"
+
+Please respond in this exact JSON format:
+{{
+    "needs_search": true/false,
+    "search_query": "optimized search query if needed, or empty string if not needed",
+    "reason": "brief explanation of why search is or isn't needed"
+}}
+
+Consider these factors:
+- Questions about current events, news, weather, stock prices, recent developments
+- Requests for up-to-date information that changes frequently
+- Questions about "today", "latest", "recent", "current" topics in any language
+- General knowledge questions that don't need current data should NOT trigger search
+- Consider the language of the user's question and adapt the search query accordingly
+
+Examples:
+- "What's the weather like today?" → needs_search: true, search_query: "weather today"
+- "What is artificial intelligence?" → needs_search: false, search_query: ""
+- "Latest AI news" → needs_search: true, search_query: "latest AI news"
+- "What is 1+1?" → needs_search: false, search_query: ""
+- "¿Cómo está el clima hoy?" → needs_search: true, search_query: "clima hoy"
+- "Quelles sont les dernières nouvelles?" → needs_search: true, search_query: "dernières nouvelles"
+"""
+
+        # Use the same client to analyze
+        analysis_messages = [
+            {"role": "system", "content": "You are an AI assistant that analyzes user messages to determine if they need web search. Always respond with valid JSON. Consider the language of the user's message and adapt your analysis accordingly."},
+            {"role": "user", "content": analysis_prompt}
+        ]
+        
+        # Get analysis response
+        analysis_response = await client._client.chat.completions.create(
+            model=client.model,
+            messages=analysis_messages,
+            max_tokens=200,
+            temperature=0.1
+        )
+        
+        analysis_text = analysis_response.choices[0].message.content.strip()
+        print(f"🔍 LLM analysis response: {analysis_text}")
+        
+        # Parse JSON response
+        import json
+        analysis_data = json.loads(analysis_text)
+        
+        needs_search = analysis_data.get("needs_search", False)
+        search_query = analysis_data.get("search_query", "").strip()
+        
+        # Add current date context to search query if needed
+        if needs_search and search_query:
+            now = datetime.now()
+            current_year = now.year
+            current_month = now.month
+            current_day = now.day
+            
+            if "today" in search_query.lower() or "今日" in search_query or "今天" in search_query:
+                search_query = f"{search_query} {current_year}-{current_month:02d}-{current_day:02d}"
+            elif "latest" in search_query.lower() or "recent" in search_query.lower() or "最新" in search_query or "最近" in search_query:
+                search_query = f"{search_query} {current_year}-{current_month:02d}"
+        
+        return needs_search, search_query
+        
+    except Exception as e:
+        print(f"🔍 Error in search analysis: {str(e)}")
+        # If LLM analysis fails, don't search to avoid incorrect behavior
+        return False, ""
 
 
 def _ensure_session(session_id: Optional[str], title: str) -> str:
@@ -136,7 +213,7 @@ async def get_session_messages(session_id: str = Path(...)) -> list:
         messages = []
         for row in cursor.fetchall():
             message = dict(row)
-            # 重命名字段以匹配前端期望
+            # Rename fields to match frontend expectations
             message['timestamp'] = message.pop('created_at')
             messages.append(message)
     return messages
@@ -205,7 +282,16 @@ async def stream_chat(stream_id: str = Path(...)) -> StreamingResponse:
                 
                 # Construct messages with conversation history
                 # Use custom system prompt if provided, otherwise use default
-                default_system_prompt = "You are a helpful AI assistant. When responding to users:\n\n1. Always start your response as a complete, independent statement\n2. Be conversational and helpful, but maintain your AI identity\n3. You have access to the full conversation history and should maintain context\n4. Respond naturally and engage with the user's questions or requests\n5. If the user asks about something from previous messages, reference it appropriately\n6. Keep responses clear, informative, and well-structured"
+                default_system_prompt = """You are a helpful AI assistant. When responding to users:
+
+1. Always start your response as a complete, independent statement
+2. Be conversational and helpful, but maintain your AI identity
+3. You have access to the full conversation history and should maintain context
+4. Respond naturally and engage with the user's questions or requests
+5. If the user asks about something from previous messages, reference it appropriately
+6. Keep responses clear, informative, and well-structured
+
+IMPORTANT: If you see search results in the system context, these are REAL-TIME information I searched for you. You MUST use this information to provide accurate, up-to-date answers. Do NOT say you cannot provide specific data when search results clearly contain relevant information. Extract and present the key facts, numbers, and details from the search results. ACTIVELY embed source URLs as inline references throughout your response using markdown links. Adapt your language to match the user's question language and naturally incorporate the search results into your response."""
                 
                 messages = [
                     {"role": "system", "content": system_prompt or default_system_prompt},
@@ -216,10 +302,165 @@ async def stream_chat(stream_id: str = Path(...)) -> StreamingResponse:
                 print(f"🔍 System prompt: {system_prompt[:100] if system_prompt else 'None'}...")
                 for i, msg in enumerate(messages):
                     print(f"🔍 Message {i}: {msg['role']} - {msg['content'][:100]}...")
+                
+                # First, check if user message needs search using LLM
+                user_message = messages[-1]["content"] if messages else ""
+                needs_search, search_query = await _analyze_search_need(client, user_message)
+                
+                if needs_search and search_query:
+                    print(f"🔍 LLM determined search needed: {search_query}")
+                    
+                    try:
+                        # Execute search first
+                        mcp_client = get_mcp_client()
+                        search_result = await mcp_client.execute_tool(
+                            tool_name="search",
+                            parameters={"query": search_query},
+                            session_id=session_id,
+                            message_id=assistant_msg_id
+                        )
+                        
+                        # Format search results
+                        search_results = search_result["result"]
+                        search_summary = f"📰 Latest Information Search Results (Query: {search_results['query']}):\n\n"
+                        
+                        # Display search results in backend console for debugging
+                        print(f"🔍 ===== Search Results Details =====")
+                        print(f"🔍 Query: {search_results['query']}")
+                        print(f"🔍 Total Results: {len(search_results['results'])}")
+                        print(f"🔍 Search Time: {search_results.get('search_time', 'N/A')} seconds")
+                        print(f"🔍 API Source: {search_results.get('api_source', 'N/A')}")
+                        print(f"🔍 ===== Top 5 Results =====")
+                        
+                        for i, result in enumerate(search_results['results'][:5], 1):
+                            print(f"🔍 【{i}】{result['title']}")
+                            print(f"🔍 URL: {result['url']}")
+                            print(f"🔍 Snippet: {result['snippet'][:100]}...")
+                            print(f"🔍 Source: {result.get('source', 'N/A')}")
+                            print(f"🔍 Published: {result.get('published_date', 'N/A')}")
+                            print(f"🔍 ---")
+                            
+                            # Format for AI context
+                            search_summary += f"📄 {result['title']}\n"
+                            search_summary += f"🔗 {result['url']}\n"
+                            search_summary += f"📝 {result['snippet']}\n\n"
+                        
+                        print(f"🔍 ===== Search Results Formatting Complete =====")
+                        
+                        # Add search results to conversation context as system message
+                        messages.append({
+                            "role": "system", 
+                            "content": f"""I have searched for relevant information for you. Here are the search results:
+
+{search_summary}
+
+Please answer the user's question based on these search results: {user_message}
+
+IMPORTANT: These search results contain REAL-TIME, CURRENT information that directly addresses the user's question. You MUST use this information to provide a comprehensive answer. Do NOT say you cannot provide specific data when the search results clearly contain relevant information.
+
+EXAMPLE of proper link embedding: Instead of "According to Yahoo Finance, the market rose 2%", write "According to [Yahoo Finance](https://finance.yahoo.com), the market rose 2%". Always embed links directly in your text using [link text](URL) format.
+
+Guidelines:
+1. Extract and present ALL relevant information from the search results - don't leave out important details
+2. Look for specific data, numbers, facts, and concrete information in the snippets that directly relate to the user's question
+3. If multiple sources mention the same information, present it as confirmed data
+4. ACTIVELY embed URLs as inline references throughout your response using markdown link format: [descriptive text](URL)
+5. When mentioning specific data, facts, or information, immediately follow with the source link in the same sentence
+6. Make URLs an integral part of your response, not just an afterthought - weave them naturally into the text
+7. If the search results contain specific data, numbers, or facts, present them clearly and prominently with their source links
+8. At the end of your response, provide a separate list of all relevant URLs with appropriate section heading in the user's language
+9. Use natural language to describe the format - for example, in English you might say "Related links:" or "Sources:", in Chinese you might say "相关链接：" or "参考资料：", etc.
+10. Adapt all formatting, headings, and labels to match the user's language and cultural context
+
+Please respond in the same language as the user's question and adapt all formatting accordingly."""
+                        })
+                        
+                        print(f"🔍 Search completed, found {len(search_results['results'])} results")
+                        print(f"🔍 ===== Search Complete, Results Injected into AI Context =====")
+                        
+                    except Exception as e:
+                        error_msg = f"Search process encountered an error: {str(e)}"
+                        messages.append({
+                            "role": "system", 
+                            "content": f"Search failed: {error_msg}. Please respond based on your knowledge."
+                        })
+                        print(f"🔍 Search failed: {str(e)}")
+                
+                # Stream AI response and check for tool calls
+                response_text = ""
                 async for delta in client.stream_chat(messages):
+                    response_text += delta
                     accumulated.append(delta)
                     yield _sse_event({"delta": delta, "done": False})
+                
                 await client.close()
+                
+                # Check if AI response contains search tool call
+                if "[SEARCH:" in response_text and "]" in response_text:
+                    try:
+                        # Extract search query
+                        search_match = re.search(r'\[SEARCH:\s*([^\]]+)\]', response_text)
+                        if search_match:
+                            search_query = search_match.group(1).strip()
+                            
+                            # Optimize search query for current information
+                            now = datetime.now()
+                            current_year = now.year
+                            current_month = now.month
+                            current_day = now.day
+                            
+                            # Add current date context to search query for better results
+                            # Support multiple languages for time-sensitive queries
+                            today_keywords = ["today", "今日", "今天", "heute", "aujourd'hui", "hoy"]
+                            recent_keywords = ["latest", "recent", "最新", "最近", "neueste", "récent", "reciente"]
+                            
+                            if any(keyword in search_query.lower() for keyword in today_keywords):
+                                search_query = f"{search_query} {current_year}-{current_month:02d}-{current_day:02d}"
+                            elif any(keyword in search_query.lower() for keyword in recent_keywords):
+                                search_query = f"{search_query} {current_year}-{current_month:02d}"
+                            
+                            print(f"🔍 Detected search request: {search_query}")
+                            
+                            # Execute search tool
+                            mcp_client = get_mcp_client()
+                            search_result = await mcp_client.execute_tool(
+                                tool_name="search",
+                                parameters={"query": search_query},
+                                session_id=session_id,
+                                message_id=assistant_msg_id
+                            )
+                            
+                            # Format search results for AI
+                            search_results = search_result["result"]
+                            search_summary = f"\n\n[Search Results]\n"
+                            search_summary += f"Search Query: {search_results['query']}\n"
+                            search_summary += f"Found {len(search_results['results'])} results:\n\n"
+                            
+                            for i, result in enumerate(search_results['results'][:5], 1):  # Show top 5 results
+                                search_summary += f"{i}. {result['title']}\n"
+                                search_summary += f"   {result['url']}\n"
+                                search_summary += f"   {result['snippet']}\n\n"
+                            
+                            # Add search results to accumulated content
+                            accumulated.append(search_summary)
+                            
+                            # Stream the search results
+                            for line in search_summary.split('\n'):
+                                yield _sse_event({"delta": line + '\n', "done": False})
+                                await asyncio.sleep(0.01)  # Small delay for streaming effect
+                            
+                            print(f"🔍 Search completed, found {len(search_results['results'])} results")
+                            
+                    except MCPToolError as e:
+                        error_msg = f"\n\n[Search Error] Unable to execute search: {str(e)}\n"
+                        accumulated.append(error_msg)
+                        yield _sse_event({"delta": error_msg, "done": False})
+                        print(f"🔍 Search failed: {str(e)}")
+                    except Exception as e:
+                        error_msg = f"\n\n[Search Error] Error occurred during search process: {str(e)}\n"
+                        accumulated.append(error_msg)
+                        yield _sse_event({"delta": error_msg, "done": False})
+                        print(f"🔍 Search error: {str(e)}")
             else:
                 # Fallback echo stream
                 async for evt in _stream_response_text(f"Echo: {payload}"):

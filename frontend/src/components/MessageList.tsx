@@ -1,6 +1,43 @@
 import React, { useEffect, useRef } from 'react';
 import { Message } from '../types';
 
+// Simple function to render markdown links
+const renderMarkdownLinks = (text: string) => {
+  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = linkRegex.exec(text)) !== null) {
+    // Add text before the link
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    
+    // Add the link
+    parts.push(
+      <a
+        key={match.index}
+        href={match[2]}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-600 hover:text-blue-800 underline"
+      >
+        {match[1]}
+      </a>
+    );
+    
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  
+  return parts.length > 0 ? parts : text;
+};
+
 interface MessageListProps {
   messages: Message[];
   isStreaming: boolean;
@@ -21,7 +58,7 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
     <div className="flex-1 overflow-y-auto p-4 space-y-4">
       {messages.length === 0 ? (
         <div className="text-center text-gray-500 mt-8">
-          <p>开始与 AI 助手对话吧！</p>
+          <p>Start a conversation with the AI assistant!</p>
         </div>
       ) : (
         messages.map((message) => (
@@ -36,7 +73,7 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
                   : 'bg-gray-200 text-gray-800'
               }`}
             >
-              <div className="whitespace-pre-wrap">{message.content}</div>
+              <div className="whitespace-pre-wrap">{renderMarkdownLinks(message.content)}</div>
               <div
                 className={`text-xs mt-1 ${
                   message.role === 'user' ? 'text-blue-100' : 'text-gray-500'

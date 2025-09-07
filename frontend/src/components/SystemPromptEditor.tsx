@@ -15,16 +15,16 @@ export function SystemPromptEditor({ systemPrompt, onUpdate, onClose }: SystemPr
 
   const handleSave = () => {
     onUpdate(prompt);
-    onClose(); // 保存后直接关闭
+    onClose(); // Save and close
   };
 
   const handleCancel = () => {
-    setPrompt(systemPrompt); // 恢复到原始值
-    onClose(); // 取消后关闭
+    setPrompt(systemPrompt); // Restore to original value
+    onClose(); // Cancel and close
   };
 
   const handleClose = () => {
-    onClose(); // 直接关闭，不保存
+    onClose(); // Close without saving
   };
 
   const handleReset = () => {

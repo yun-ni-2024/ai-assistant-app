@@ -34,10 +34,13 @@ export function useChat() {
 
     try {
       // Step 1: Create chat request
+      // Check if user message requires search (don't override system prompt for search queries)
+      const needsSearch = /最新|今天|现在|当前|实时|新闻|天气|股价|价格|时间/.test(userMessage);
+      
       const createRequest: CreateChatRequest = {
         session_id: currentSessionId || undefined,
         user_message: userMessage,
-        system_prompt: systemPrompt,
+        system_prompt: needsSearch ? undefined : systemPrompt, // Use default system prompt for search queries
       };
       
       console.log('🔍 Sending request with system prompt:', systemPrompt.substring(0, 100) + '...');
@@ -63,7 +66,7 @@ export function useChat() {
         // Create new session
         const newSession: Session = {
           id: createData.session_id,
-          title: userMessage.slice(0, 40) || '新对话',
+          title: userMessage.slice(0, 40) || 'New Chat',
           createdAt: new Date().toISOString(),
           messages: [userMsg],
         };

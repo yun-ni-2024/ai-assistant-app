@@ -65,6 +65,23 @@ def init_db() -> None:
             """
         )
 
+        # Create tool_calls table for MCP tool execution tracking
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tool_calls (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                parameters TEXT,
+                result TEXT,
+                status TEXT NOT NULL DEFAULT 'success',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            """
+        )
+
 
 @contextmanager
 def db_connection() -> Iterator[sqlite3.Connection]:

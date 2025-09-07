@@ -2,7 +2,7 @@
 
 A modern web application that provides AI-powered conversational assistance with real-time streaming responses, conversation memory, and customizable system prompts.
 
-**Version**: 1.1.0 - Added custom system prompt editor
+**Version**: 1.2.0 - Added MCP tool integration with web search
 
 ## 🚀 Features
 
@@ -10,6 +10,8 @@ A modern web application that provides AI-powered conversational assistance with
 - **Conversation Memory**: AI maintains context across multiple messages in a session
 - **Session Management**: Create, switch between, and manage multiple conversation sessions
 - **Custom System Prompts**: Edit and customize AI behavior with real-time system prompt editor
+- **MCP Tool Integration**: Web search capabilities with real-time information retrieval
+- **Multilingual Support**: Full internationalization with adaptive language responses
 - **Streaming Responses**: Real-time token-by-token response streaming using Server-Sent Events (SSE)
 - **Modern UI**: Clean and responsive React-based user interface with English interface
 - **Database Persistence**: SQLite database for storing conversations and messages
@@ -28,6 +30,7 @@ A modern web application that provides AI-powered conversational assistance with
 - **Language**: Python 3.x
 - **Database**: SQLite with custom connection management
 - **LLM Integration**: OpenAI-compatible API (OpenRouter)
+- **MCP Tools**: Google Custom Search API for web search
 - **Streaming**: Server-Sent Events (SSE) for real-time responses
 
 ### AI Model
@@ -57,14 +60,17 @@ ai-assistant-app/
 │   ├── app/
 │   │   ├── api/
 │   │   │   └── routes/      # API route handlers
-│   │   │       ├── chat.py  # Chat endpoints
-│   │   │       └── health.py # Health check & debug endpoints
+│   │   │       ├── chat.py  # Chat endpoints with MCP integration
+│   │   │       ├── health.py # Health check & debug endpoints
+│   │   │       └── tools.py  # MCP tools management endpoints
 │   │   ├── core/
-│   │   │   └── settings.py  # Configuration management
+│   │   │   ├── settings.py  # Configuration management
+│   │   │   └── mcp_config.py # MCP tools configuration
 │   │   ├── db/
 │   │   │   └── database.py  # Database connection & schema
 │   │   ├── services/
-│   │   │   └── openai_stream.py # LLM streaming client
+│   │   │   ├── openai_stream.py # LLM streaming client
+│   │   │   └── mcp_client.py    # MCP tools client
 │   │   └── main.py          # FastAPI application entry
 │   ├── data/
 │   │   └── app.db          # SQLite database file
@@ -145,6 +151,12 @@ OPENAI_MODEL=deepseek/deepseek-chat-v3.1:free
 OPENROUTER_SITE_URL=http://localhost:5173
 OPENROUTER_SITE_TITLE=AI Assistant App
 
+# MCP Tools Configuration
+MCP_SEARCH_ENABLED=true
+MCP_SEARCH_URL=http://localhost:3001
+GOOGLE_CSE_API_KEY=your_google_cse_api_key_here
+GOOGLE_CSE_ENGINE_ID=your_google_cse_engine_id_here
+
 # Database
 DATABASE_URL=sqlite:///./data/app.db
 ```
@@ -173,9 +185,12 @@ The application supports multiple LLM providers:
 - [x] English user interface
 - [x] Error handling and fallback mechanisms
 - [x] Debug endpoints for development
+- [x] MCP (Model Context Protocol) tool integration
+- [x] Web search capabilities with Google Custom Search API
+- [x] Multilingual support with adaptive responses
+- [x] Real-time information retrieval and citation
 
 ### 🚧 In Progress
-- [ ] MCP (Model Context Protocol) tool integration
 - [ ] Enhanced UI/UX improvements
 
 ### 📋 Planned Features
@@ -192,8 +207,15 @@ The application supports multiple LLM providers:
 
 ### Chat Endpoints
 - `POST /api/chat/create` - Create a new chat session (supports custom system_prompt)
-- `GET /api/chat/stream/{stream_id}` - Stream AI responses
+- `GET /api/chat/stream/{stream_id}` - Stream AI responses with MCP tool integration
 - `GET /api/chat/sessions/{session_id}/messages` - Get session messages
+
+### MCP Tools Endpoints
+- `GET /api/tools/` - List all available MCP tools
+- `GET /api/tools/enabled` - List enabled MCP tools
+- `POST /api/tools/execute` - Execute an MCP tool
+- `GET /api/tools/{tool_name}/info` - Get specific tool information
+- `GET /api/tools/health` - MCP tools health check
 
 ### Utility Endpoints
 - `GET /healthz` - Health check
@@ -218,6 +240,27 @@ The application allows you to customize how the AI assistant behaves:
 - **Technical Expert**: "You are a technical expert. Provide detailed, technical explanations with code examples when appropriate."
 
 The system prompt is automatically saved to your browser's localStorage and will persist across sessions.
+
+### MCP Tool Integration
+
+The application includes Model Context Protocol (MCP) tools that extend AI capabilities:
+
+1. **Web Search**: Automatically searches for real-time information when needed
+2. **Multilingual Support**: Adapts search queries and responses to user's language
+3. **Source Citation**: Provides inline links to information sources
+4. **Real-time Data**: Retrieves current information for time-sensitive queries
+
+**How it works**:
+- The AI automatically determines when web search is needed
+- Search results are integrated into responses with proper citations
+- Links are embedded inline for easy access to sources
+- Supports multiple languages with appropriate formatting
+
+**Example queries that trigger search**:
+- "What's the weather like today?"
+- "Latest news about AI"
+- "Stock market performance on [date]"
+- "Current events in [location]"
 
 ## 🤝 Contributing
 
