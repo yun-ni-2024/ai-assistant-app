@@ -1,3 +1,14 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Hide backticks from inline code */
+.prose code::before,
+.prose code::after {
+  content: none !important;
+}
+
+/* Ensure inline code doesn't have backticks */
+.prose code {
+  font-family: 'Courier New', Courier, monospace;
+}

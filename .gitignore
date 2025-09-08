@@ -26,6 +26,10 @@ ENV/
 backend/data/*
 !backend/data/.gitkeep
 
+# File uploads (temporary files)
+backend/data/uploads/*
+!backend/data/uploads/.gitkeep
+
 # Env files
 backend/.env
 frontend/.env

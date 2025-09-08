@@ -24,14 +24,19 @@ class SearchTool:
     
     def get_usage_conditions(self) -> str:
         """Return the conditions under which this tool should be used."""
-        return """Use this tool when:
-1. User asks for real-time information, current events, or latest data
-2. User wants to know about recent news, weather, or current happenings
-3. User asks questions that require up-to-date information not in general knowledge
-4. User wants to search for specific topics, people, or events
-5. User asks "what's happening", "latest news", "current status", etc.
-6. User needs information that changes frequently (stock prices, weather, news)
-7. User asks about recent developments or updates on any topic"""
+        return """Use this tool ONLY when:
+1. User explicitly asks for REAL-TIME information (e.g., "current weather", "today's news", "latest stock prices")
+2. User asks about RECENT events or developments (e.g., "what happened today", "latest updates on...")
+3. User needs CURRENT data that changes frequently (e.g., "current time", "today's date", "live scores")
+4. User asks about SPECIFIC recent events, people, or topics that require up-to-date information
+5. User explicitly mentions time-sensitive keywords like "today", "now", "latest", "current", "recent", "live"
+
+DO NOT use this tool for:
+- General knowledge questions (e.g., "what is AI", "explain machine learning")
+- Historical information or established facts
+- Educational content or definitions
+- Questions that can be answered with general knowledge
+- Conceptual explanations or theoretical topics"""
     
     def get_tool_selection_prompt(self) -> str:
         """Return the prompt for tool selection analysis."""
@@ -39,7 +44,7 @@ class SearchTool:
 Description: {self.get_tool_description()}
 Usage Conditions: {self.get_usage_conditions()}
 
-This tool should be selected when the user's question requires real-time, current, or up-to-date information that is not available in general knowledge."""
+This tool should ONLY be selected when the user explicitly asks for real-time, current, or up-to-date information that requires searching the web. For general knowledge questions, definitions, or educational content, choose "none" instead."""
     
     def get_parameter_extraction_prompt(self) -> str:
         """Return the prompt template for extracting search parameters from user messages."""
@@ -114,7 +119,7 @@ LINK FORMATTING EXAMPLES:
 
 SOURCE LIST REQUIREMENT:
 - At the end of your response, provide a separate list of all relevant URLs with appropriate section heading in the user's language
-- Use natural language to describe the format - for example, in English you might say "Related links:" or "Sources:", in Chinese you might say "相关链接：" or "参考资料：", etc.
+- Use natural language to describe the format - for example, in English you might say "Related links:" or "Sources:", etc.
 - List each URL using Markdown link format: [descriptive text](URL)
 - Each link should have a brief description of what it contains
 - This provides users with easy access to all the sources you referenced

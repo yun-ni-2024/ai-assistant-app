@@ -35,3 +35,18 @@ tools:
       - "User asks about content from a particular URL"
     parameters:
       url: "string - The webpage URL to fetch and analyze"
+
+  file:
+    name: "file"
+    description: "Read and analyze uploaded files"
+    class_module: ".file_tool"
+    class_name: "FileTool"
+    factory_function: "create_file_tool"
+    enabled: true
+    use_cases:
+      - "User has uploaded a file and wants to analyze it"
+      - "User mentions 'read file', 'analyze file', 'file content'"
+      - "User wants to examine uploaded files"
+      - "User asks about specific file contents or structure"
+    parameters:
+      file_id: "string - File ID of the uploaded file"

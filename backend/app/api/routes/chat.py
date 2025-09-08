@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException, Path, UploadFile, File
 from fastapi import Body
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -45,6 +45,7 @@ _streams: Dict[str, str] = {}
 _assistant_placeholders: Dict[str, str] = {}
 _stream_sessions: Dict[str, str] = {}  # Map stream_id to session_id
 _stream_system_prompts: Dict[str, str] = {}  # Map stream_id to system_prompt
+_uploaded_files: Dict[str, str] = {}  # Map file_id to file_path
 
 
 def _now_iso() -> str:
@@ -156,7 +157,11 @@ Selection Guidelines:
 1. Carefully analyze the user's core need and intent
 2. Consider the conversation context when interpreting pronouns like "it", "this", "that"
 3. Choose the tool that can best address the user's specific question
-4. If no tool is appropriate for the question, choose "none"
+4. For general knowledge questions, definitions, or educational content, choose "none" - let the AI use its built-in knowledge
+5. Only use search tool for real-time information that requires web search
+6. Only use fetch tool when user provides a specific URL
+7. Only use file tool when user has uploaded a file
+8. If no tool is appropriate for the question, choose "none"
 
 Please respond in this exact JSON format:
 {{
@@ -315,6 +320,19 @@ async def _execute_tool_and_format_result(tool: str, parameters: dict, session_i
                 print(f"🔍 ---")
             
             print(f"🔍 ===== Search Results Complete =====")
+            
+        elif tool == "file":
+            print(f"📁 ===== File Results Details =====")
+            print(f"📁 File Path: {result.get('file_path', 'N/A')}")
+            print(f"📁 File Type: {result.get('file_type', 'N/A')}")
+            print(f"📁 File Size: {result.get('file_size', 'N/A')} bytes")
+            print(f"📁 Success: {result.get('success', 'N/A')}")
+            if result.get('error'):
+                print(f"📁 Error: {result.get('error', 'N/A')}")
+            print(f"📁 ===== Content Preview =====")
+            content_preview = result.get('content', '')[:300]
+            print(f"📁 {content_preview}{'...' if len(result.get('content', '')) > 300 else ''}")
+            print(f"📁 ===== File Results Complete =====")
         
         # Return raw result as JSON string for system message template
         import json
@@ -357,6 +375,36 @@ def _insert_message(message_id: str, session_id: str, role: str, content: str) -
             """,
             (message_id, session_id, role, content, _now_iso(), sequence_id),
         )
+
+
+@router.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Upload a file and return file ID for later reference."""
+    try:
+        # Create uploads directory if it doesn't exist
+        import os
+        upload_dir = "./data/uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate unique file ID
+        file_id = str(uuid4())
+        
+        # Save file to uploads directory
+        file_path = os.path.join(upload_dir, f"{file_id}_{file.filename}")
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # Store file mapping
+        _uploaded_files[file_id] = file_path
+        
+        return {
+            "file_id": file_id,
+            "filename": file.filename,
+            "message": "File uploaded successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/create", response_model=CreateChatResponse)
@@ -490,16 +538,37 @@ async def stream_chat(stream_id: str = Path(...)) -> StreamingResponse:
                 
                 # Construct messages with conversation history
                 # Use custom system prompt if provided, otherwise use default
-                default_system_prompt = """You are a helpful AI assistant. When responding to users:
+                default_system_prompt = """You are an expert AI assistant with deep knowledge across all domains. Your goal is to provide comprehensive, detailed, and highly valuable responses that truly help users.
 
-1. Always start your response as a complete, independent statement
-2. Be conversational and helpful, but maintain your AI identity
-3. You have access to the full conversation history and should maintain context
-4. Respond naturally and engage with the user's questions or requests
-5. If the user asks about something from previous messages, reference it appropriately
-6. Keep responses clear, informative, and well-structured
+## Core Principles:
+1. **Be Thorough**: Provide detailed, comprehensive answers that go beyond surface-level information
+2. **Be Practical**: Include actionable advice, specific examples, and real-world applications
+3. **Be Structured**: Organize information clearly with headings, bullet points, and logical flow
+4. **Be Contextual**: Consider the user's likely background and tailor your response accordingly
+5. **Be Engaging**: Write in a conversational yet professional tone that keeps users interested
 
-IMPORTANT: If you see search results in the system context, these are REAL-TIME information I searched for you. You MUST use this information to provide accurate, up-to-date answers. Do NOT say you cannot provide specific data when search results clearly contain relevant information. Extract and present the key facts, numbers, and details from the search results. ACTIVELY embed source URLs as inline references throughout your response using markdown links. Adapt your language to match the user's question language and naturally incorporate the search results into your response."""
+## Response Guidelines:
+- **For Recommendations**: Provide multiple options with detailed explanations of why each is suitable, including pros/cons, difficulty levels, and use cases
+- **For Explanations**: Break down complex topics into digestible parts with examples and analogies
+- **For How-To Questions**: Provide step-by-step instructions with tips, common pitfalls, and troubleshooting
+- **For Comparisons**: Create detailed comparison tables or lists highlighting key differences
+- **For Creative Tasks**: Offer multiple approaches and variations to inspire the user
+
+## Formatting Standards:
+- Use markdown formatting (headings, lists, code blocks, tables) to enhance readability
+- Include relevant emojis sparingly to make content more engaging
+- Provide specific examples, numbers, and concrete details
+- Use subheadings to organize different aspects of your response
+- Include "Why this matters" or "Key takeaways" sections when appropriate
+
+## Special Instructions:
+- If you see search results in the system context, these are REAL-TIME information I searched for you. You MUST use this information to provide accurate, up-to-date answers
+- Do NOT say you cannot provide specific data when search results clearly contain relevant information
+- Extract and present key facts, numbers, and details from search results
+- ACTIVELY embed source URLs as inline references throughout your response using markdown links
+- Adapt your language to match the user's question language and naturally incorporate search results
+
+Remember: Your responses should be so valuable that users feel they've gained significant knowledge and practical insights from the interaction."""
                 
                 messages = [
                     {"role": "system", "content": system_prompt or default_system_prompt},

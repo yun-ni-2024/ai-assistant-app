@@ -74,13 +74,45 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
                           {children}
                         </p>
                       ),
+                      code: ({ children, className, ...props }: any) => {
+                        // Check if this is a code block (has className with language-)
+                        const isCodeBlock = className && className.includes('language-');
+                        
+                        if (isCodeBlock) {
+                          return (
+                            <code className="block bg-gray-900 text-gray-100 p-3 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre" {...props}>
+                              {children}
+                            </code>
+                          );
+                        }
+                        
+                        // Inline code
+                        return (
+                          <code className="bg-gray-100 text-gray-800 px-1 py-0.5 rounded text-sm font-mono" {...props}>
+                            {children}
+                          </code>
+                        );
+                      },
+                      pre: ({ children, ...props }: any) => (
+                        <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto mb-4 whitespace-pre" {...props}>
+                          {children}
+                        </pre>
+                      ),
                     }}
                   >
                     {message.content}
                   </ReactMarkdown>
                 </div>
               ) : (
-                <div className="whitespace-pre-wrap">{message.content}</div>
+                <div className="whitespace-pre-wrap">
+                  {message.content.split('\n').map((line, index) => {
+                    // Hide file ID lines from display
+                    if (line.startsWith('[File ID:') && line.endsWith(']')) {
+                      return null;
+                    }
+                    return <div key={index}>{line}</div>;
+                  })}
+                </div>
               )}
               <div
                 className={`text-xs mt-1 ${
