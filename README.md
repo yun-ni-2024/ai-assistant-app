@@ -2,7 +2,7 @@
 
 A modern web application that provides AI-powered conversational assistance with real-time streaming responses, conversation memory, and customizable system prompts.
 
-**Version**: 1.3.0 - Enhanced MCP tools with fetch capability and intelligent filtering
+**Version**: 1.4.0 - Unified MCP tool framework with Markdown rendering
 
 ## 🚀 Features
 
@@ -11,6 +11,8 @@ A modern web application that provides AI-powered conversational assistance with
 - **Session Management**: Create, switch between, and manage multiple conversation sessions
 - **Custom System Prompts**: Edit and customize AI behavior with real-time system prompt editor
 - **MCP Tool Integration**: Web search and content fetching with real-time information retrieval
+- **Unified Tool Framework**: Extensible MCP tool system with dynamic configuration
+- **Markdown Rendering**: Rich text formatting with proper link embedding and source citations
 - **Multilingual Support**: Full internationalization with adaptive language responses
 - **Streaming Responses**: Real-time token-by-token response streaming using Server-Sent Events (SSE)
 - **Modern UI**: Clean and responsive React-based user interface with English interface
@@ -22,6 +24,8 @@ A modern web application that provides AI-powered conversational assistance with
 ### Frontend
 - **Framework**: React 18.3.1 with TypeScript
 - **Build Tool**: Vite 5.4.1
+- **Styling**: Tailwind CSS with Typography plugin
+- **Markdown**: React Markdown with GitHub Flavored Markdown support
 - **State Management**: React Hooks (useState, useCallback)
 - **HTTP Client**: Native Fetch API with EventSource for SSE
 
@@ -30,7 +34,8 @@ A modern web application that provides AI-powered conversational assistance with
 - **Language**: Python 3.x
 - **Database**: SQLite with custom connection management
 - **LLM Integration**: OpenAI-compatible API (OpenRouter)
-- **MCP Tools**: Google Custom Search API for web search, web content fetching with BeautifulSoup
+- **MCP Tools**: Unified tool framework with Google Custom Search API and web content fetching
+- **Tool Configuration**: YAML-based tool configuration with dynamic loading
 - **Streaming**: Server-Sent Events (SSE) for real-time responses
 
 ### AI Model
@@ -64,13 +69,16 @@ ai-assistant-app/
 │   │   │       ├── health.py # Health check & debug endpoints
 │   │   │       └── tools.py  # MCP tools management endpoints
 │   │   ├── core/
-│   │   │   ├── settings.py  # Configuration management
-│   │   │   └── mcp_config.py # MCP tools configuration
+│   │   │   └── settings.py  # Configuration management
 │   │   ├── db/
 │   │   │   └── database.py  # Database connection & schema
 │   │   ├── services/
 │   │   │   ├── openai_stream.py # LLM streaming client
-│   │   │   └── mcp_client.py    # MCP tools client
+│   │   │   └── tools/           # MCP tools framework
+│   │   │       ├── tool_registry.py # Tool registration and management
+│   │   │       ├── search_tool.py   # Web search tool
+│   │   │       ├── fetch_tool.py    # Web content fetching tool
+│   │   │       └── tools_config.yaml # Tool configuration
 │   │   └── main.py          # FastAPI application entry
 │   ├── data/
 │   │   └── app.db          # SQLite database file
@@ -151,16 +159,30 @@ OPENAI_MODEL=deepseek/deepseek-chat-v3.1:free
 OPENROUTER_SITE_URL=http://localhost:5173
 OPENROUTER_SITE_TITLE=AI Assistant App
 
-# MCP Tools Configuration
-MCP_SEARCH_ENABLED=true
-MCP_FETCH_ENABLED=true
-MCP_SEARCH_URL=http://localhost:3001
-MCP_FETCH_URL=http://localhost:3002
-GOOGLE_CSE_API_KEY=your_google_cse_api_key_here
-GOOGLE_CSE_ENGINE_ID=your_google_cse_engine_id_here
-
 # Database
 DATABASE_URL=sqlite:///./data/app.db
+```
+
+**Note**: MCP tools are configured entirely in YAML files, not in environment variables.
+
+### Tool Configuration
+
+MCP tools are configured in `backend/app/services/tools/tools_config.yaml`:
+
+```yaml
+tools:
+  search:
+    enabled: true
+    config:
+      api_key: "your_google_cse_api_key"
+      engine_id: "your_google_cse_engine_id"
+      base_url: "https://www.googleapis.com/customsearch/v1"
+  
+  fetch:
+    enabled: true
+    config:
+      timeout: 30.0
+      max_content_length: 8000
 ```
 
 ### API Configuration
@@ -188,6 +210,7 @@ The application supports multiple LLM providers:
 - [x] Error handling and fallback mechanisms
 - [x] Debug endpoints for development
 - [x] MCP (Model Context Protocol) tool integration
+- [x] Unified MCP tool framework with dynamic configuration
 - [x] Web search capabilities with Google Custom Search API
 - [x] Web content fetching with BeautifulSoup4 and httpx
 - [x] Intelligent tool selection with priority system (fetch > search)
@@ -195,6 +218,10 @@ The application supports multiple LLM providers:
 - [x] Real-time information retrieval and citation
 - [x] Smart content filtering for search results
 - [x] Natural language link embedding
+- [x] Markdown rendering with React Markdown and Tailwind CSS
+- [x] YAML-based tool configuration system
+- [x] Tool framework with self-describing capabilities
+- [x] Source list with proper Markdown link formatting
 
 ### 🚧 In Progress
 - [ ] Enhanced UI/UX improvements

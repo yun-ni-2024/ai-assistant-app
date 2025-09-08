@@ -67,12 +67,14 @@ backend/
         tools.py         # MCP tools management
     core/
       settings.py        # Configuration management
-      mcp_config.py      # MCP tools configuration
     db/
       database.py        # Database connection & schema
     services/
       openai_stream.py   # LLM streaming client
-      mcp_client.py      # MCP tools client
+      tools/             # MCP tools framework
+        tool_registry.py # Tool registration and management
+        search_tool.py   # Web search tool
+        fetch_tool.py    # Web content fetching tool
     main.py              # FastAPI application entry
   data/
     app.db              # SQLite database file

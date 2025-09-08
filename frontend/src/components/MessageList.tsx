@@ -1,42 +1,7 @@
 import React, { useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Message } from '../types';
-
-// Simple function to render markdown links
-const renderMarkdownLinks = (text: string) => {
-  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
-  const parts = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = linkRegex.exec(text)) !== null) {
-    // Add text before the link
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    
-    // Add the link
-    parts.push(
-      <a
-        key={match.index}
-        href={match[2]}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-blue-600 hover:text-blue-800 underline"
-      >
-        {match[1]}
-      </a>
-    );
-    
-    lastIndex = match.index + match[0].length;
-  }
-  
-  // Add remaining text
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-  
-  return parts.length > 0 ? parts : text;
-};
 
 interface MessageListProps {
   messages: Message[];
@@ -73,7 +38,50 @@ export function MessageList({ messages, isStreaming }: MessageListProps) {
                   : 'bg-gray-200 text-gray-800'
               }`}
             >
-              <div className="whitespace-pre-wrap">{renderMarkdownLinks(message.content)}</div>
+              {message.role === 'assistant' ? (
+                <div className="prose prose-sm max-w-none">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a: ({ href, children, ...props }: any) => (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 underline"
+                          {...props}
+                        >
+                          {children}
+                        </a>
+                      ),
+                      ul: ({ children, ...props }: any) => (
+                        <ul className="list-disc list-inside space-y-1" {...props}>
+                          {children}
+                        </ul>
+                      ),
+                      li: ({ children, ...props }: any) => (
+                        <li className="text-sm" {...props}>
+                          {children}
+                        </li>
+                      ),
+                      strong: ({ children, ...props }: any) => (
+                        <strong className="font-semibold" {...props}>
+                          {children}
+                        </strong>
+                      ),
+                      p: ({ children, ...props }: any) => (
+                        <p className="mb-2 last:mb-0" {...props}>
+                          {children}
+                        </p>
+                      ),
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <div className="whitespace-pre-wrap">{message.content}</div>
+              )}
               <div
                 className={`text-xs mt-1 ${
                   message.role === 'user' ? 'text-blue-100' : 'text-gray-500'

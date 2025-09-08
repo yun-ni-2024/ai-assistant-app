@@ -54,6 +54,10 @@ class Settings:
         self.openrouter_site_url: str = os.getenv("OPENROUTER_SITE_URL", "")
         self.openrouter_site_title: str = os.getenv("OPENROUTER_SITE_TITLE", "")
 
+        # Google Custom Search Engine configuration
+        self.google_cse_api_key: str = os.getenv("GOOGLE_CSE_API_KEY", "")
+        self.google_cse_engine_id: str = os.getenv("GOOGLE_CSE_ENGINE_ID", "")
+
         # SQLite database path (will be used later)
         db_path = os.getenv("SQLITE_DB_PATH", "./data/app.db")
         # Use a file-based SQLite URL to simplify future integration

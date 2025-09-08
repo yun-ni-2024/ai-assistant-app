@@ -8,8 +8,7 @@ from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel, Field
 
-from ...services.mcp_client import get_mcp_client, MCPToolError
-from ...core.mcp_config import get_enabled_tools, is_tool_enabled
+from ...services.tools import get_tool_registry
 
 
 router = APIRouter(prefix="/tools", tags=["tools"])
@@ -20,7 +19,6 @@ class ToolInfo(BaseModel):
     name: str
     description: str
     enabled: bool
-    server_url: str
 
 
 class ToolExecutionRequest(BaseModel):
@@ -42,17 +40,16 @@ class ToolExecutionResponse(BaseModel):
 async def list_tools() -> List[ToolInfo]:
     """List all available MCP tools."""
     try:
-        mcp_client = get_mcp_client()
-        tools = await mcp_client.list_available_tools()
+        tool_registry = get_tool_registry()
+        available_tools = tool_registry.get_available_tools()
         
         return [
             ToolInfo(
-                name=tool["name"],
-                description=tool["description"],
-                enabled=tool["enabled"],
-                server_url=tool["server_url"]
+                name=tool_name,
+                description=config.get("description", ""),
+                enabled=config.get("enabled", True)
             )
-            for tool in tools
+            for tool_name, config in available_tools.items()
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list tools: {str(e)}")
@@ -62,16 +59,17 @@ async def list_tools() -> List[ToolInfo]:
 async def list_enabled_tools() -> List[ToolInfo]:
     """List only enabled MCP tools."""
     try:
-        enabled_tools = get_enabled_tools()
+        tool_registry = get_tool_registry()
+        available_tools = tool_registry.get_available_tools()
         
         return [
             ToolInfo(
-                name=tool.name,
-                description=tool.description,
-                enabled=tool.enabled,
-                server_url=tool.server_url
+                name=tool_name,
+                description=config.get("description", ""),
+                enabled=config.get("enabled", True)
             )
-            for tool in enabled_tools.values()
+            for tool_name, config in available_tools.items()
+            if config.get("enabled", True)
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list enabled tools: {str(e)}")
@@ -81,29 +79,34 @@ async def list_enabled_tools() -> List[ToolInfo]:
 async def execute_tool(request: ToolExecutionRequest = Body(...)) -> ToolExecutionResponse:
     """Execute an MCP tool with given parameters."""
     try:
+        tool_registry = get_tool_registry()
+        
         # Validate tool exists and is enabled
-        if not is_tool_enabled(request.tool_name):
+        if not tool_registry.is_tool_enabled(request.tool_name):
             raise HTTPException(
                 status_code=400, 
                 detail=f"Tool '{request.tool_name}' is not available or not enabled"
             )
         
-        mcp_client = get_mcp_client()
-        result = await mcp_client.execute_tool(
-            tool_name=request.tool_name,
-            parameters=request.parameters,
-            session_id=request.session_id,
-            message_id=request.message_id
-        )
+        # Create tool instance
+        tool_instance = tool_registry.create_tool_instance(request.tool_name)
+        if not tool_instance:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to create tool instance for '{request.tool_name}'"
+            )
+        
+        # Execute the tool
+        result = await tool_instance.execute(request.parameters)
         
         return ToolExecutionResponse(
-            tool_name=result["tool_name"],
-            result=result["result"],
-            status=result["status"]
+            tool_name=request.tool_name,
+            result=result,
+            status="success"
         )
         
-    except MCPToolError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
 
@@ -112,18 +115,16 @@ async def execute_tool(request: ToolExecutionRequest = Body(...)) -> ToolExecuti
 async def get_tool_info(tool_name: str) -> ToolInfo:
     """Get information about a specific tool."""
     try:
-        mcp_client = get_mcp_client()
-        tools = await mcp_client.list_available_tools()
+        tool_registry = get_tool_registry()
+        tool_config = tool_registry.get_tool_config(tool_name)
         
-        tool_info = next((tool for tool in tools if tool["name"] == tool_name), None)
-        if not tool_info:
+        if not tool_config:
             raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
         
         return ToolInfo(
-            name=tool_info["name"],
-            description=tool_info["description"],
-            enabled=tool_info["enabled"],
-            server_url=tool_info["server_url"]
+            name=tool_name,
+            description=tool_config.get("description", ""),
+            enabled=tool_config.get("enabled", True)
         )
         
     except HTTPException:
@@ -136,9 +137,9 @@ async def get_tool_info(tool_name: str) -> ToolInfo:
 async def tools_health_check() -> Dict[str, Any]:
     """Health check for MCP tools service."""
     try:
-        mcp_client = get_mcp_client()
-        tools = await mcp_client.list_available_tools()
-        enabled_tools = [tool for tool in tools if tool["enabled"]]
+        tool_registry = get_tool_registry()
+        available_tools = tool_registry.get_available_tools()
+        enabled_tools = [name for name, config in available_tools.items() if config.get("enabled", True)]
         
         # Check environment variables
         import os
@@ -147,9 +148,9 @@ async def tools_health_check() -> Dict[str, Any]:
         
         return {
             "status": "healthy",
-            "total_tools": len(tools),
+            "total_tools": len(available_tools),
             "enabled_tools": len(enabled_tools),
-            "tools": [tool["name"] for tool in enabled_tools],
+            "tools": enabled_tools,
             "env_check": {
                 "google_api_key_loaded": bool(google_api_key),
                 "google_engine_id_loaded": bool(google_engine_id),

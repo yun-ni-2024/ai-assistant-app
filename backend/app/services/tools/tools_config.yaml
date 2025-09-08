@@ -1,0 +1,37 @@
+# MCP Tools Configuration
+# This file defines all available MCP tools and their configurations
+
+tools:
+  search:
+    name: "search"
+    description: "Search the internet for real-time information, news, and current data"
+    class_module: ".search_tool"
+    class_name: "SearchTool"
+    factory_function: "create_search_tool"
+    enabled: true
+    use_cases:
+      - "User asks for real-time information or current events"
+      - "User wants latest news, weather, or recent developments"
+      - "User asks about 'today', 'latest', 'recent', 'current' information"
+      - "User needs up-to-date data that changes frequently"
+    parameters:
+      query: "string - Search keywords in the same language as user's message"
+    config:
+      api_key: "AIzaSyCvO67UizyewCFZjHgaiHxblTxfNNLkk6o"
+      engine_id: "b6f62eb33bb914330"
+      base_url: "https://www.googleapis.com/customsearch/v1"
+
+  fetch:
+    name: "fetch"
+    description: "Retrieve and analyze content from a specific webpage URL"
+    class_module: ".fetch_tool"
+    class_name: "FetchTool"
+    factory_function: "create_fetch_tool"
+    enabled: true
+    use_cases:
+      - "User provides a specific URL to analyze"
+      - "User mentions 'this webpage', 'this link', 'analyze this page'"
+      - "User wants to extract information from a specific website"
+      - "User asks about content from a particular URL"
+    parameters:
+      url: "string - The webpage URL to fetch and analyze"

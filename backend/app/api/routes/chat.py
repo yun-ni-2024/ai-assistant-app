@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from ...db.database import db_connection
 from ...core.settings import get_settings
 from ...services.openai_stream import OpenAIStreamClient
-from ...services.mcp_client import get_mcp_client, MCPToolError
+from ...services.tools import get_tool_registry
 
 
 router = APIRouter(prefix="/chat", tags=["chat"]) 
@@ -51,51 +51,122 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def _analyze_tool_needs(client, conversation_history: list, user_message: str) -> tuple[str, dict]:
-    """Analyze user message and determine which tool to use with priority: fetch > search."""
+async def _extract_tool_parameters(client, tool_name: str, user_message: str, conversation_context: str) -> dict:
+    """Extract tool parameters using tool-specific prompts."""
     try:
-        # Create analysis prompt for tool selection with conversation context
-        analysis_prompt = f"""Analyze the following user message and determine which tool to use. Available tools: fetch (for URLs), search (for real-time info).
+        # Get tool registry
+        tool_registry = get_tool_registry()
+        
+        # Check if tool is enabled
+        if not tool_registry.is_tool_enabled(tool_name):
+            print(f"🔧 Tool {tool_name} is not enabled")
+            return {}
+        
+        # Create tool instance
+        tool_instance = tool_registry.create_tool_instance(tool_name)
+        if not tool_instance:
+            print(f"🔧 Failed to create tool instance for {tool_name}")
+            return {}
+        
+        # Get tool-specific parameter extraction prompt
+        parameter_prompt = tool_instance.get_parameter_extraction_prompt()
+        
+        # Format the prompt with actual values
+        analysis_prompt = parameter_prompt.format(
+            user_message=user_message,
+            conversation_context=conversation_context
+        )
+        
+        # Build LLM messages
+        analysis_messages = [
+            {"role": "system", "content": "You are a parameter extraction assistant. Always respond with valid JSON. Consider conversation context and user intent."},
+            {"role": "user", "content": analysis_prompt}
+        ]
+        
+        # Call LLM to extract parameters
+        analysis_response = await client._client.chat.completions.create(
+            model=client.model,
+            messages=analysis_messages,
+            max_tokens=200,
+            temperature=0.1
+        )
+        
+        analysis_text = analysis_response.choices[0].message.content.strip()
+        print(f"🔧 LLM parameter extraction response for {tool_name}: {analysis_text}")
+        
+        # Clean up the response text (remove markdown code blocks if present)
+        if analysis_text.startswith("```json"):
+            analysis_text = analysis_text[7:]  # Remove ```json
+        if analysis_text.startswith("```"):
+            analysis_text = analysis_text[3:]   # Remove ```
+        if analysis_text.endswith("```"):
+            analysis_text = analysis_text[:-3]  # Remove trailing ```
+        analysis_text = analysis_text.strip()
+        
+        # Parse JSON response
+        import json
+        parameters = json.loads(analysis_text)
+        
+        print(f"🔧 Extracted parameters for {tool_name}: {parameters}")
+        return parameters
+        
+    except Exception as e:
+        print(f"🔧 Error extracting parameters for {tool_name}: {str(e)}")
+        return {}
 
-Conversation context:
+
+async def _analyze_tool_needs(client, conversation_history: list, user_message: str) -> str:
+    """Intelligently analyze user message and determine the most appropriate tool to use."""
+    try:
+        # Get tool registry
+        tool_registry = get_tool_registry()
+        
+        # Get available tools from registry
+        available_tools = tool_registry.get_available_tools()
+        if not available_tools:
+            print("🔧 No tools available")
+            return "none"
+        
+        # Build tool selection prompt using tool classes' own descriptions
+        tools_info = []
+        for tool_name, tool_info in available_tools.items():
+            # Get the actual tool instance to access its description methods
+            tool_instance = tool_registry.get_tool_instance(tool_name)
+            if tool_instance and hasattr(tool_instance, 'get_tool_selection_prompt'):
+                tools_info.append(tool_instance.get_tool_selection_prompt())
+            else:
+                # Fallback to basic info if tool doesn't have the new methods
+                tools_info.append(f"""
+Tool Name: {tool_info['name']}
+Description: {tool_info['description']}
+Use Cases: {', '.join(tool_info['use_cases'])}
+""")
+        
+        analysis_prompt = f"""You are an intelligent tool selector. Analyze the user's message and select the most appropriate tool to answer their question.
+
+Available Tools:
+{chr(10).join(tools_info)}
+
+Conversation Context:
 {_format_conversation_context(conversation_history)}
 
-Current user message: "{user_message}"
+User Message: "{user_message}"
+
+Selection Guidelines:
+1. Carefully analyze the user's core need and intent
+2. Consider the conversation context when interpreting pronouns like "it", "this", "that"
+3. Choose the tool that can best address the user's specific question
+4. If no tool is appropriate for the question, choose "none"
 
 Please respond in this exact JSON format:
 {{
-    "tool": "fetch" or "search" or "none",
-    "parameters": {{"url": "..."}} or {{"query": "..."}} or {{}},
-    "reason": "brief explanation of tool choice"
-}}
-
-Priority rules:
-1. FETCH (highest priority): If message contains a URL (http:// or https://) or mentions "this webpage", "this link", "analyze this page"
-2. SEARCH (medium priority): If asking for real-time info, news, weather, current events, "latest", "today", "recent"
-3. NONE (lowest priority): General knowledge questions that don't need tools
-
-IMPORTANT: 
-1. Consider the conversation context when interpreting pronouns like "it", "this", "that", etc.
-2. ALWAYS generate search queries in the SAME LANGUAGE as the user's message. If user writes in Chinese, generate Chinese search query. If user writes in English, generate English search query.
-
-Examples:
-- "Analyze this webpage: https://example.com" → tool: "fetch", parameters: {{"url": "https://example.com"}}
-- "What's the weather today?" → tool: "search", parameters: {{"query": "weather today"}}
-- "今天天气怎么样？" → tool: "search", parameters: {{"query": "今天天气"}}
-- "What is AI?" → tool: "none", parameters: {{}}
-- "什么是人工智能？" → tool: "none", parameters: {{}}
-- "This link: https://news.com" → tool: "fetch", parameters: {{"url": "https://news.com"}}
-- "这个链接：https://news.com" → tool: "fetch", parameters: {{"url": "https://news.com"}}
-- "Latest AI news" → tool: "search", parameters: {{"query": "latest AI news"}}
-- "AI最新新闻" → tool: "search", parameters: {{"query": "AI最新新闻"}}
-- "Tell me about its latest news" (after discussing AI) → tool: "search", parameters: {{"query": "latest AI news"}}
-- "告诉我关于它的最新新闻" (after discussing AI) → tool: "search", parameters: {{"query": "AI最新新闻"}}
-- "Please fetch https://example.com and search for AI news" → tool: "fetch", parameters: {{"url": "https://example.com"}} (fetch has priority)
-"""
+    "tool": "tool_name" or "none",
+    "reason": "brief explanation of why this tool is most appropriate"
+}}"""
 
         # Use the same client to analyze
         analysis_messages = [
-            {"role": "system", "content": "You are an AI assistant that analyzes user messages to determine which tool to use. Always respond with valid JSON. Consider the conversation context and the language of the user's message. Pay special attention to pronouns and references that need to be resolved based on the conversation history. CRITICAL: Always generate search queries in the same language as the user's message."},
+            {"role": "system", "content": "You are an intelligent tool selector that analyzes user messages to determine the most appropriate tool. Always respond with valid JSON. Consider conversation context and user intent."},
             {"role": "user", "content": analysis_prompt}
         ]
         
@@ -108,7 +179,7 @@ Examples:
         )
         
         analysis_text = analysis_response.choices[0].message.content.strip()
-        print(f"🔧 LLM tool analysis response: {analysis_text}")
+        print(f"🔧 LLM intelligent tool selection response: {analysis_text}")
         
         # Clean up the response text (remove markdown code blocks if present)
         if analysis_text.startswith("```json"):
@@ -124,17 +195,21 @@ Examples:
         analysis_data = json.loads(analysis_text)
         
         tool = analysis_data.get("tool", "none")
-        parameters = analysis_data.get("parameters", {})
+        reason = analysis_data.get("reason", "No reason provided")
         
-        # Keep search query as-is without adding date context
-        # Adding dates can mislead search engines and reduce result relevance
+        # Validate that the selected tool is available
+        if tool != "none" and tool not in available_tools:
+            print(f"🔧 Selected tool {tool} is not available, falling back to none")
+            tool = "none"
         
-        return tool, parameters
+        print(f"🔧 Selected tool: {tool}, Reason: {reason}")
+        
+        return tool
         
     except Exception as e:
-        print(f"🔧 Error in tool analysis: {str(e)}")
+        print(f"🔧 Error in intelligent tool selection: {str(e)}")
         # If LLM analysis fails, don't use tools to avoid incorrect behavior
-        return "none", {}
+        return "none"
 
 
 def _format_conversation_context(conversation_history: list) -> str:
@@ -156,43 +231,82 @@ def _format_conversation_context(conversation_history: list) -> str:
     return "\n".join(context_lines) if context_lines else "No previous conversation context."
 
 
+async def _generate_system_message(tool: str, tool_result: str, user_message: str) -> str:
+    """Generate system message using tool-specific template."""
+    try:
+        # Get tool registry
+        tool_registry = get_tool_registry()
+        
+        # Check if tool is enabled
+        if not tool_registry.is_tool_enabled(tool):
+            print(f"🔧 Tool {tool} is not enabled")
+            return ""
+        
+        # Create tool instance
+        tool_instance = tool_registry.create_tool_instance(tool)
+        if not tool_instance:
+            print(f"🔧 Failed to create tool instance for {tool}")
+            return ""
+        
+        # Get tool-specific system message template
+        system_message_template = tool_instance.get_system_message_template()
+        
+        # Format the template with actual values
+        system_message = system_message_template.format(
+            tool_result=tool_result,
+            user_message=user_message
+        )
+        
+        return system_message
+        
+    except Exception as e:
+        print(f"🔧 Error generating system message for {tool}: {str(e)}")
+        return f"Tool result processing failed: {str(e)}"
+
+
 async def _execute_tool_and_format_result(tool: str, parameters: dict, session_id: str, message_id: str) -> str:
     """Execute a tool and format the result for AI context."""
     try:
-        mcp_client = get_mcp_client()
-        result = await mcp_client.execute_tool(
-            tool_name=tool,
-            parameters=parameters,
-            session_id=session_id,
-            message_id=message_id
-        )
+        # Get tool registry
+        tool_registry = get_tool_registry()
         
+        # Check if tool is enabled
+        if not tool_registry.is_tool_enabled(tool):
+            print(f"🔧 Tool {tool} is not enabled")
+            return ""
+        
+        # Create tool instance
+        tool_instance = tool_registry.create_tool_instance(tool)
+        if not tool_instance:
+            print(f"🔧 Failed to create tool instance for {tool}")
+            return ""
+        
+        # Execute the tool
+        result = await tool_instance.execute(parameters)
+        
+        # Display results in backend console for debugging
         if tool == "fetch":
-            # Display fetch results in backend console for debugging
-            fetch_results = result["result"]
             print(f"📄 ===== Fetch Results Details =====")
-            print(f"📄 URL: {fetch_results.get('url', 'N/A')}")
-            print(f"📄 Title: {fetch_results.get('title', 'N/A')}")
-            print(f"📄 Content Length: {len(fetch_results.get('content', ''))}")
-            print(f"📄 Status Code: {fetch_results.get('status_code', 'N/A')}")
-            print(f"📄 Content Type: {fetch_results.get('content_type', 'N/A')}")
-            print(f"📄 Links Found: {len(fetch_results.get('links', []))}")
+            print(f"📄 URL: {result.get('url', 'N/A')}")
+            print(f"📄 Title: {result.get('title', 'N/A')}")
+            print(f"📄 Content Length: {len(result.get('content', ''))}")
+            print(f"📄 Status Code: {result.get('status_code', 'N/A')}")
+            print(f"📄 Content Type: {result.get('content_type', 'N/A')}")
+            print(f"📄 Links Found: {len(result.get('links', []))}")
             print(f"📄 ===== Content Preview =====")
-            content_preview = fetch_results.get('content', '')[:300]
-            print(f"📄 {content_preview}{'...' if len(fetch_results.get('content', '')) > 300 else ''}")
-            print(f"📄 ===== Fetch Results Formatting Complete =====")
-            return _format_fetch_result(fetch_results)
+            content_preview = result.get('content', '')[:300]
+            print(f"📄 {content_preview}{'...' if len(result.get('content', '')) > 300 else ''}")
+            print(f"📄 ===== Fetch Results Complete =====")
+            
         elif tool == "search":
-            # Display search results in backend console for debugging
-            search_results = result["result"]
             print(f"🔍 ===== Search Results Details =====")
-            print(f"🔍 Query: {search_results.get('query', 'N/A')}")
-            print(f"🔍 Total Results: {len(search_results.get('results', []))}")
-            print(f"🔍 Search Time: {search_results.get('search_time', 'N/A')} seconds")
-            print(f"🔍 API Source: {search_results.get('api_source', 'N/A')}")
+            print(f"🔍 Query: {result.get('query', 'N/A')}")
+            print(f"🔍 Total Results: {len(result.get('results', []))}")
+            print(f"🔍 Search Time: {result.get('search_time', 'N/A')} seconds")
+            print(f"🔍 API Source: {result.get('api_source', 'N/A')}")
             print(f"🔍 ===== Top 10 Results =====")
             
-            for i, search_result in enumerate(search_results.get('results', [])[:10], 1):
+            for i, search_result in enumerate(result.get('results', [])[:10], 1):
                 print(f"🔍 【{i}】{search_result.get('title', 'N/A')}")
                 print(f"🔍 URL: {search_result.get('url', 'N/A')}")
                 print(f"🔍 Snippet: {search_result.get('snippet', 'N/A')[:100]}...")
@@ -200,63 +314,17 @@ async def _execute_tool_and_format_result(tool: str, parameters: dict, session_i
                 print(f"🔍 Published: {search_result.get('published_date', 'N/A')}")
                 print(f"🔍 ---")
             
-            print(f"🔍 ===== Search Results Formatting Complete =====")
-            return _format_search_result(search_results)
-        else:
-            return ""
+            print(f"🔍 ===== Search Results Complete =====")
+        
+        # Return raw result as JSON string for system message template
+        import json
+        return json.dumps(result, ensure_ascii=False, indent=2)
             
     except Exception as e:
         print(f"🔧 Error executing {tool} tool: {str(e)}")
         return f"Tool execution failed: {str(e)}"
 
 
-def _format_fetch_result(fetch_data: dict) -> str:
-    """Format fetch tool result for AI context."""
-    url = fetch_data.get("url", "")
-    title = fetch_data.get("title", "Unknown")
-    content = fetch_data.get("content", "")
-    summary = fetch_data.get("summary", "")
-    links = fetch_data.get("links", [])
-    
-    formatted_result = f"""📄 Webpage Content Retrieved:
-
-**Source**: {url}
-**Title**: {title}
-
-**Content**:
-{content}
-
-"""
-    
-    # Only include links if they are relevant and not too many
-    if links and len(links) <= 5:
-        formatted_result += "**Additional Links Found**:\n"
-        for i, link in enumerate(links, 1):
-            formatted_result += f"{i}. {link['text']} - {link['url']}\n"
-        formatted_result += "\n"
-    
-    return formatted_result
-
-
-def _format_search_result(search_data: dict) -> str:
-    """Format search tool result for AI context."""
-    query = search_data.get("query", "")
-    results = search_data.get("results", [])
-    
-    formatted_result = f"""📰 Search Results (Query: {query}):
-
-"""
-    
-    for i, result in enumerate(results[:10], 1):  # Show top 10 results
-        title = result.get("title", "")
-        url = result.get("url", "")
-        snippet = result.get("snippet", "")
-        
-        formatted_result += f"**{i}. {title}**\n"
-        formatted_result += f"🔗 {url}\n"
-        formatted_result += f"📝 {snippet}\n\n"
-    
-    return formatted_result
 
 
 def _ensure_session(session_id: Optional[str], title: str) -> str:
@@ -447,83 +515,30 @@ IMPORTANT: If you see search results in the system context, these are REAL-TIME 
                 user_message = messages[-1]["content"] if messages else ""
                 # Pass conversation history (excluding system messages) for context
                 conversation_history = [msg for msg in messages if msg.get("role") != "system"]
-                tool, parameters = await _analyze_tool_needs(client, conversation_history, user_message)
+                tool = await _analyze_tool_needs(client, conversation_history, user_message)
                 
                 if tool != "none":
-                    print(f"🔧 LLM determined tool needed: {tool} with parameters: {parameters}")
+                    print(f"🔧 LLM determined tool needed: {tool}")
                     
                     try:
+                        # Extract tool-specific parameters using tool's prompt
+                        conversation_context = _format_conversation_context(conversation_history)
+                        parameters = await _extract_tool_parameters(client, tool, user_message, conversation_context)
+                        
                         # Execute the selected tool and get formatted result
                         tool_result = await _execute_tool_and_format_result(
                             tool, parameters, session_id, assistant_msg_id
                         )
                         
                         if tool_result:
-                            # Add tool result to conversation context as system message
-                            if tool == "fetch":
-                                system_message = f"""I have retrieved webpage content for you. Here is the information:
-
-{tool_result}
-
-Please answer the user's question based on this webpage content: {user_message}
-
-IMPORTANT: This webpage content contains REAL information that directly addresses the user's question. You MUST use this information to provide a comprehensive answer. Do NOT say you cannot provide specific data when the webpage content clearly contains relevant information.
-
-Guidelines for webpage content analysis:
-1. Extract and present ALL relevant information from the webpage content
-2. Look for specific data, numbers, facts, and concrete information that directly relate to the user's question
-3. Focus on analyzing and summarizing the content rather than citing sources
-4. If the webpage content contains specific data, numbers, or facts, present them clearly and prominently
-5. Provide a comprehensive analysis based on the webpage content
-6. If there are related links in the content, you may mention them naturally but don't over-emphasize them
-7. Adapt your response to match the user's language and cultural context
-
-Please respond in the same language as the user's question and provide a thorough analysis of the webpage content."""
-                            elif tool == "search":
-                                system_message = f"""I have searched for relevant information for you. Here are the search results:
-
-{tool_result}
-
-Please answer the user's question based on these search results: {user_message}
-
-IMPORTANT: These search results contain REAL-TIME, CURRENT information that directly addresses the user's question. You MUST use this information to provide a comprehensive answer. Do NOT say you cannot provide specific data when the search results clearly contain relevant information.
-
-Guidelines:
-1. CAREFULLY FILTER search results - only include information that is DIRECTLY relevant to the user's specific question
-2. IGNORE search results that are not related to the user's question, even if they appear in the search results
-3. Focus on extracting specific data, numbers, facts, and concrete information that directly relate to the user's question
-4. If multiple sources mention the same relevant information, present it as confirmed data
-5. ACTIVELY embed URLs as inline references throughout your response using markdown link format: [descriptive text](URL)
-6. When mentioning specific data, facts, or information, immediately follow with the source link in the same sentence
-7. Make URLs an integral part of your response, not just an afterthought - weave them naturally into the text
-8. If the search results contain specific data, numbers, or facts, present them clearly and prominently with their source links
-9. At the end of your response, provide a separate list of all relevant URLs with appropriate section heading in the user's language
-10. Use natural language to describe the format - for example, in English you might say "Related links:" or "Sources:", in Chinese you might say "相关链接：" or "参考资料：", etc.
-11. Adapt all formatting, headings, and labels to match the user's language and cultural context
-
-CONTENT FILTERING RULES:
-- Only include information that is DIRECTLY relevant to the user's specific question
-- IGNORE search results that are not related to the user's question, even if they appear in the search results
-- Don't feel obligated to use all search results - quality and relevance are more important than quantity
-- If search results are mostly irrelevant, acknowledge this and provide what relevant information you can find
-- Examples: If user asks about finance but results include entertainment news, ignore the entertainment; if user asks about technology but results include unrelated topics, ignore the unrelated topics
-
-CRITICAL LINK EMBEDDING RULES:
-- NEVER add source references as separate phrases at the end of sentences like "[来源]" or "来源："
-- NEVER add source names as standalone text after the main content
-- ALWAYS integrate links naturally into the flow of your sentences
-- Use descriptive link text that makes sense in context
-- Links should feel like natural parts of your writing, not afterthoughts
-- When mentioning information, weave the source link into the sentence structure
-- Make your writing flow naturally - readers should not notice the links are "added on"
-- Think of links as integral parts of your narrative, not citations to be appended
-
-Please respond in the same language as the user's question and adapt all formatting accordingly."""
+                            # Generate system message using tool-specific template
+                            system_message = await _generate_system_message(tool, tool_result, user_message)
                             
-                            messages.append({
-                                "role": "system", 
-                                "content": system_message
-                            })
+                            if system_message:
+                                messages.append({
+                                    "role": "system", 
+                                    "content": system_message
+                                })
                             
                             print(f"🔧 {tool} tool completed, result injected into AI context")
                         
